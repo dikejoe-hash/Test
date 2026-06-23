@@ -224,11 +224,17 @@ local function InitJWareUI()
 		local guiParent = resolveGuiParent()
 		local Window = { CurrentTab = nil, Tabs = {}, KeybindLabels = {} }
 
+		-- Global tracker: only one color picker open at a time
+		local activeColorPicker = nil  -- holds { close = fn } of the open picker
+
 		-- ── ScreenGuis ────────────────────────────────────────────────────────
 		local mainGui      = makeScreenGui("JWare UI",           guiParent)
 		local overlayGui   = makeScreenGui("JWare UI Watermarks", guiParent)
+		local popupGui     = makeScreenGui("JWare UI Popups",    guiParent)
+		popupGui.DisplayOrder = 999   -- always on top
 		Window._mainGui    = mainGui
 		Window._overlayGui = overlayGui
+		Window._popupGui   = popupGui
 
 		local uiVisible = true
 		function Window:UIToggle(state)
@@ -897,23 +903,63 @@ local function InitJWareUI()
 					Indicator.Font               = Enum.Font.Gotham
 					Indicator.Parent             = DropFrame
 
-					-- Expanded list
+					-- Expanded list  (parented to popupGui so it's never clipped)
+					local MAX_VISIBLE    = 8
+					local ITEM_H         = 20
+					local listH          = math.min(#cfg.Options, MAX_VISIBLE) * ITEM_H
+					local LIST_W         = 208
+
 					local ListFrame = Instance.new("Frame")
-					ListFrame.Name             = "List"
+					ListFrame.Name             = "List_" .. cfg.Title
 					ListFrame.BackgroundColor3 = COL_ELEM_BG
 					ListFrame.BorderSizePixel  = 0
-					ListFrame.Size             = UDim2.new(0, 208, 0, #cfg.Options * 20)
-					ListFrame.Position         = UDim2.new(0, 0, 0, 20)
+					ListFrame.Size             = UDim2.fromOffset(LIST_W, listH)
+					ListFrame.Position         = UDim2.fromOffset(0, 0)  -- set when opened
 					ListFrame.Visible          = false
-					ListFrame.ZIndex           = 11
-					ListFrame.ClipsDescendants = true
-					ListFrame.Parent           = DropFrame
+					ListFrame.ZIndex           = 300
+					ListFrame.ClipsDescendants = (#cfg.Options > MAX_VISIBLE)
+					ListFrame.Parent           = popupGui
 					addStroke(ListFrame, Theme.OutlineColor)
 
-					local ListLayout = Instance.new("UIListLayout")
-					ListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-					ListLayout.Padding   = UDim.new(0, 0)
-					ListLayout.Parent    = ListFrame
+					-- Scrolling if more than MAX_VISIBLE items
+					if #cfg.Options > MAX_VISIBLE then
+						local scroll = Instance.new("ScrollingFrame")
+						scroll.Name                  = "Scroll"
+						scroll.BackgroundTransparency = 1
+						scroll.BorderSizePixel       = 0
+						scroll.Size                  = UDim2.new(1, 0, 1, 0)
+						scroll.CanvasSize            = UDim2.fromOffset(0, #cfg.Options * ITEM_H)
+						scroll.ScrollBarThickness    = 4
+						scroll.ScrollBarImageColor3  = Theme.MainColor
+						scroll.ZIndex                = 301
+						scroll.Parent                = ListFrame
+						-- redirect layout into scroll
+						local ListLayout2 = Instance.new("UIListLayout")
+						ListLayout2.SortOrder = Enum.SortOrder.LayoutOrder
+						ListLayout2.Padding   = UDim.new(0, 0)
+						ListLayout2.Parent    = scroll
+						-- expose scroll as the item parent
+						ListFrame._itemParent = scroll
+					end
+
+					local itemParent = ListFrame._itemParent or ListFrame
+					if itemParent == ListFrame then
+						local ListLayout = Instance.new("UIListLayout")
+						ListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+						ListLayout.Padding   = UDim.new(0, 0)
+						ListLayout.Parent    = ListFrame
+					end
+
+					local function positionListFrame()
+						local dfAbs = DropFrame.AbsolutePosition
+						local dfSz  = DropFrame.AbsoluteSize
+						local px    = dfAbs.X
+						local py    = dfAbs.Y + dfSz.Y + 1
+						if py + listH > VIEWPORT.Y - 4 then
+							py = dfAbs.Y - listH - 1
+						end
+						ListFrame.Position = UDim2.fromOffset(px, py)
+					end
 
 					local expanded    = false
 					local selected    = cfg.Multi and cfg.Default or (cfg.Default[1] or nil)
@@ -921,10 +967,27 @@ local function InitJWareUI()
 
 					local function setExpanded(state)
 						expanded = state
+						if state then positionListFrame() end
 						ListFrame.Visible = state
 						Indicator.Text    = state and "▲" or "▼"
 						tween(DropFrame, { BackgroundColor3 = state and Theme.MainColor or COL_ELEM_BG })
 					end
+
+					-- Close on outside click
+					UserInputService.InputBegan:Connect(function(i)
+						if not expanded then return end
+						if i.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+						local mp = i.Position
+						local lp = ListFrame.AbsolutePosition
+						local ls = ListFrame.AbsoluteSize
+						local dp = DropFrame.AbsolutePosition
+						local ds = DropFrame.AbsoluteSize
+						local inList = mp.X >= lp.X and mp.X <= lp.X+ls.X and mp.Y >= lp.Y and mp.Y <= lp.Y+ls.Y
+						local inDrop = mp.X >= dp.X and mp.X <= dp.X+ds.X and mp.Y >= dp.Y and mp.Y <= dp.Y+ds.Y
+						if not inList and not inDrop then
+							setExpanded(false)
+						end
+					end)
 
 					DropFrame.MouseEnter:Connect(function()
 						tween(DropTitle,  { TextColor3 = COL_TEXT_HOVER })
@@ -947,10 +1010,10 @@ local function InitJWareUI()
 						wrapper.Name                = optName
 						wrapper.BackgroundTransparency = 1
 						wrapper.AutoButtonColor     = false
-						wrapper.Size                = UDim2.new(1, 0, 0, 20)
-						wrapper.ZIndex              = 11
+						wrapper.Size                = UDim2.new(1, 0, 0, ITEM_H)
+						wrapper.ZIndex              = 301
 						wrapper.Text                = ""
-						wrapper.Parent              = ListFrame
+						wrapper.Parent              = itemParent
 
 						local optLbl = Instance.new("TextLabel")
 						optLbl.Name                = "Label"
@@ -962,6 +1025,7 @@ local function InitJWareUI()
 						optLbl.TextColor3          = COL_TEXT_NORMAL
 						optLbl.TextXAlignment      = Enum.TextXAlignment.Left
 						optLbl.Font                = Enum.Font.Gotham
+						optLbl.ZIndex              = 302
 						optLbl.Parent              = wrapper
 						addStroke(optLbl, Theme.OutlineColor)
 
@@ -1192,7 +1256,7 @@ local function InitJWareUI()
 				end
 
 				-- ─────────────────────────────────────────────────────────────
-				-- AddColorPicker
+				-- AddColorPicker  (modern HSV 2-D square + hue bar)
 				-- ─────────────────────────────────────────────────────────────
 				function Section:AddColorPicker(cfg)
 					cfg = cfg or {}
@@ -1200,222 +1264,440 @@ local function InitJWareUI()
 					cfg.Default  = cfg.Default  or Color3.fromRGB(255, 255, 255)
 					cfg.Callback = cfg.Callback or function() end
 
-					-- Row in ElementsHolder
+					-- ── Row in ElementsHolder ──────────────────────────────────
 					local RowFrame = Instance.new("Frame")
 					RowFrame.Name                 = "ColorPicker_" .. cfg.Title
 					RowFrame.BackgroundTransparency = 1
 					RowFrame.BorderSizePixel      = 0
-					RowFrame.ZIndex               = 10
-					RowFrame.Size                 = UDim2.new(0, 208, 0, 15)
+					RowFrame.Size                 = UDim2.new(0, 208, 0, 20)
 					RowFrame.Parent               = self.ElementsHolder
 
 					local RowTitle = Instance.new("TextLabel")
 					RowTitle.Name               = "Title"
 					RowTitle.BackgroundTransparency = 1
-					RowTitle.Size               = UDim2.new(1, 0, 1, 0)
-					RowTitle.Text               = cfg.Title .. ":"
+					RowTitle.Size               = UDim2.new(1, -38, 1, 0)
+					RowTitle.Text               = cfg.Title
 					RowTitle.TextSize           = 14
 					RowTitle.TextXAlignment     = Enum.TextXAlignment.Left
 					RowTitle.TextColor3         = COL_TEXT_NORMAL
 					RowTitle.Font               = Enum.Font.Gotham
 					RowTitle.Parent             = RowFrame
 
-					-- Small color swatch
+					-- Swatch pill button
 					local Swatch = Instance.new("Frame")
 					Swatch.Name             = "Swatch"
 					Swatch.BackgroundColor3 = cfg.Default
 					Swatch.BorderSizePixel  = 0
-					Swatch.Size             = UDim2.new(0, 30, 0, 15)
-					Swatch.Position         = UDim2.new(0, 177, 0, 0)
-					Swatch.ZIndex           = 10
+					Swatch.Size             = UDim2.new(0, 34, 0, 16)
+					Swatch.Position         = UDim2.new(1, -34, 0.5, -8)
 					Swatch.Parent           = RowFrame
+					Instance.new("UICorner", Swatch).CornerRadius = UDim.new(0, 3)
 					addStroke(Swatch, Theme.OutlineColor)
 
-					-- Popup picker panel
-					local PickerPanel = Instance.new("Frame")
-					PickerPanel.Name             = "PickerPanel"
-					PickerPanel.BackgroundColor3 = Color3.fromRGB(16, 16, 16)
-					PickerPanel.BorderSizePixel  = 0
-					PickerPanel.Size             = UDim2.new(0, 150, 0, 150)
-					PickerPanel.Position         = UDim2.new(0, -120, 1, 2)
-					PickerPanel.Visible          = false
-					PickerPanel.ZIndex           = 50
-					PickerPanel.Parent           = Swatch
+					-- ─────────────────────────────────────────────────────────
+					-- Popup panel  (parented to popupGui → always on top)
+					-- ─────────────────────────────────────────────────────────
+					-- Panel dimensions
+					local PANEL_W = 200
+					local PANEL_H = 210
+					local SV_SIZE = 150   -- saturation-value square
+					local HUE_W  = 14    -- hue bar width
+					local PAD    = 8     -- inner padding
 
+					local PickerPanel = Instance.new("Frame")
+					PickerPanel.Name             = "PickerPanel_" .. cfg.Title
+					PickerPanel.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
+					PickerPanel.BorderSizePixel  = 0
+					PickerPanel.Size             = UDim2.new(0, PANEL_W, 0, PANEL_H)
+					PickerPanel.Position         = UDim2.fromOffset(0, 0)
+					PickerPanel.Visible          = false
+					PickerPanel.ZIndex           = 200
+					PickerPanel.Parent           = popupGui
+					Instance.new("UICorner", PickerPanel).CornerRadius = UDim.new(0, 6)
 					local PanelStroke = addStroke(PickerPanel, cfg.Default, 2)
 
-					-- Gradient area
-					local GradArea = Instance.new("Frame")
-					GradArea.Name             = "GradArea"
-					GradArea.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-					GradArea.BorderSizePixel  = 0
-					GradArea.Position         = UDim2.new(0, 5, 0, 5)
-					GradArea.Size             = UDim2.new(0, 140, 0, 95)
-					GradArea.ZIndex           = 51
-					GradArea.Parent           = PickerPanel
-					addStroke(GradArea, Theme.OutlineColor)
+					-- Drop shadow illusion
+					local Shadow = Instance.new("Frame")
+					Shadow.Name             = "Shadow"
+					Shadow.BackgroundColor3 = Color3.new(0, 0, 0)
+					Shadow.BackgroundTransparency = 0.55
+					Shadow.BorderSizePixel  = 0
+					Shadow.Size             = UDim2.new(1, 8, 1, 8)
+					Shadow.Position         = UDim2.fromOffset(-4, 4)
+					Shadow.ZIndex           = 199
+					Shadow.Parent           = PickerPanel
+					Instance.new("UICorner", Shadow).CornerRadius = UDim.new(0, 8)
 
-					local GradGrad = Instance.new("UIGradient")
-					GradGrad.Rotation = 0
-					GradGrad.Color = ColorSequence.new{
-						ColorSequenceKeypoint.new(0.000, Color3.fromRGB(255, 255, 255)),
-						ColorSequenceKeypoint.new(0.150, Color3.fromRGB(255, 0,   0  )),
-						ColorSequenceKeypoint.new(0.333, Color3.fromRGB(236, 255, 16 )),
-						ColorSequenceKeypoint.new(0.500, Color3.fromRGB(0,   255, 9  )),
-						ColorSequenceKeypoint.new(0.667, Color3.fromRGB(0,   255, 248)),
-						ColorSequenceKeypoint.new(0.833, Color3.fromRGB(0,   0,   255)),
-						ColorSequenceKeypoint.new(1.000, Color3.fromRGB(239, 0,   255)),
+					-- ── Title row inside panel ─────────────────────────────────
+					local PanelTitle = Instance.new("TextLabel")
+					PanelTitle.BackgroundTransparency = 1
+					PanelTitle.Size               = UDim2.new(1, -PAD*2, 0, 18)
+					PanelTitle.Position           = UDim2.fromOffset(PAD, PAD - 2)
+					PanelTitle.Text               = cfg.Title
+					PanelTitle.TextSize           = 12
+					PanelTitle.TextXAlignment     = Enum.TextXAlignment.Left
+					PanelTitle.TextColor3         = COL_TEXT_DIM
+					PanelTitle.Font               = Enum.Font.GothamBold
+					PanelTitle.ZIndex             = 201
+					PanelTitle.Parent             = PickerPanel
+
+					-- ── Saturation-Value square ────────────────────────────────
+					local SVSquare = Instance.new("Frame")
+					SVSquare.Name             = "SVSquare"
+					SVSquare.BackgroundColor3 = Color3.fromRGB(255, 0, 0) -- updated per hue
+					SVSquare.BorderSizePixel  = 0
+					SVSquare.Size             = UDim2.fromOffset(SV_SIZE, SV_SIZE)
+					SVSquare.Position         = UDim2.fromOffset(PAD, PAD + 18)
+					SVSquare.ZIndex           = 201
+					SVSquare.Parent           = PickerPanel
+					Instance.new("UICorner", SVSquare).CornerRadius = UDim.new(0, 4)
+
+					-- White→transparent gradient (saturation axis)
+					local SatGrad = Instance.new("UIGradient")
+					SatGrad.Color    = ColorSequence.new(Color3.fromRGB(255,255,255), Color3.fromRGB(255,255,255))
+					SatGrad.Transparency = NumberSequence.new{
+						NumberSequenceKeypoint.new(0, 0),
+						NumberSequenceKeypoint.new(1, 1),
 					}
-					GradGrad.Parent = GradArea
+					SatGrad.Rotation = 0
+					SatGrad.Parent   = SVSquare
 
-					-- Picker cursor
-					local Cursor = Instance.new("Frame")
-					Cursor.Name             = "Cursor"
-					Cursor.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-					Cursor.BorderSizePixel  = 0
-					Cursor.Size             = UDim2.new(0, 5, 0, 5)
-					Cursor.ZIndex           = 52
-					Cursor.Parent           = PickerPanel
-					addStroke(Cursor, Theme.OutlineColor)
+					-- Black→transparent gradient (value axis) layered on top
+					local ValOverlay = Instance.new("Frame")
+					ValOverlay.Name             = "ValOverlay"
+					ValOverlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+					ValOverlay.BorderSizePixel  = 0
+					ValOverlay.Size             = UDim2.new(1, 0, 1, 0)
+					ValOverlay.ZIndex           = 202
+					ValOverlay.Parent           = SVSquare
+					Instance.new("UICorner", ValOverlay).CornerRadius = UDim.new(0, 4)
 
-					-- Brightness slider
-					local BrightTrack = Instance.new("Frame")
-					BrightTrack.Name             = "BrightTrack"
-					BrightTrack.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-					BrightTrack.BorderSizePixel  = 0
-					BrightTrack.Position         = UDim2.new(0, 5, 0, 105)
-					BrightTrack.Size             = UDim2.new(0, 140, 0, 15)
-					BrightTrack.ZIndex           = 51
-					BrightTrack.Parent           = PickerPanel
-					addStroke(BrightTrack, Theme.OutlineColor)
-
-					local BrightGrad = Instance.new("UIGradient")
-					BrightGrad.Color = ColorSequence.new{
-						ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
-						ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 0, 0)),
+					local ValGrad = Instance.new("UIGradient")
+					ValGrad.Rotation = 90
+					ValGrad.Transparency = NumberSequence.new{
+						NumberSequenceKeypoint.new(0, 1),
+						NumberSequenceKeypoint.new(1, 0),
 					}
-					BrightGrad.Parent = BrightTrack
+					ValGrad.Parent = ValOverlay
 
-					local BrightCursor = Instance.new("Frame")
-					BrightCursor.Name             = "BrightCursor"
-					BrightCursor.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-					BrightCursor.BorderSizePixel  = 0
-					BrightCursor.Size             = UDim2.new(0, 6, 1, 0)
-					BrightCursor.ZIndex           = 52
-					BrightCursor.Parent           = BrightTrack
-					addStroke(BrightCursor, Theme.OutlineColor)
+					-- SV cursor (circle)
+					local SVCursor = Instance.new("Frame")
+					SVCursor.Name             = "SVCursor"
+					SVCursor.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+					SVCursor.BorderSizePixel  = 0
+					SVCursor.Size             = UDim2.fromOffset(10, 10)
+					SVCursor.ZIndex           = 205
+					SVCursor.Parent           = PickerPanel
+					Instance.new("UICorner", SVCursor).CornerRadius = UDim.new(1, 0)
+					addStroke(SVCursor, Color3.fromRGB(0,0,0), 1)
 
-					-- Close button
-					local CloseBtn = Instance.new("Frame")
-					CloseBtn.Name             = "CloseBtn"
-					CloseBtn.BackgroundColor3 = COL_ELEM_BG
-					CloseBtn.BorderSizePixel  = 0
-					CloseBtn.Position         = UDim2.new(0, 5, 0, 125)
-					CloseBtn.Size             = UDim2.new(0, 140, 0, 20)
-					CloseBtn.ZIndex           = 51
-					CloseBtn.Parent           = PickerPanel
-					addStroke(CloseBtn, Theme.OutlineColor)
+					-- ── Hue bar (vertical, right of SV square) ─────────────────
+					local HueBar = Instance.new("Frame")
+					HueBar.Name             = "HueBar"
+					HueBar.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+					HueBar.BorderSizePixel  = 0
+					HueBar.Size             = UDim2.fromOffset(HUE_W, SV_SIZE)
+					HueBar.Position         = UDim2.fromOffset(PAD + SV_SIZE + 6, PAD + 18)
+					HueBar.ZIndex           = 201
+					HueBar.Parent           = PickerPanel
+					Instance.new("UICorner", HueBar).CornerRadius = UDim.new(0, 4)
 
-					local CloseLbl = Instance.new("TextLabel")
-					CloseLbl.BackgroundTransparency = 1
-					CloseLbl.Size               = UDim2.new(1, 0, 1, 0)
-					CloseLbl.Text               = "Close"
-					CloseLbl.Font               = Enum.Font.Gotham
-					CloseLbl.TextSize           = 14
-					CloseLbl.TextColor3         = Color3.fromRGB(255, 255, 255)
-					CloseLbl.ZIndex             = 52
-					CloseLbl.Parent             = CloseBtn
+					local HueGrad = Instance.new("UIGradient")
+					HueGrad.Rotation = 270
+					HueGrad.Color = ColorSequence.new{
+						ColorSequenceKeypoint.new(0.000, Color3.fromRGB(255, 0,   0  )),
+						ColorSequenceKeypoint.new(0.167, Color3.fromRGB(255, 255, 0  )),
+						ColorSequenceKeypoint.new(0.333, Color3.fromRGB(0,   255, 0  )),
+						ColorSequenceKeypoint.new(0.500, Color3.fromRGB(0,   255, 255)),
+						ColorSequenceKeypoint.new(0.667, Color3.fromRGB(0,   0,   255)),
+						ColorSequenceKeypoint.new(0.833, Color3.fromRGB(255, 0,   255)),
+						ColorSequenceKeypoint.new(1.000, Color3.fromRGB(255, 0,   0  )),
+					}
+					HueGrad.Parent = HueBar
 
-					-- State
-					local draggingGrad   = false
-					local draggingBright = false
-					local baseCol        = cfg.Default
-					local selColor       = cfg.Default
-					local brightness     = 1
+					-- Hue cursor (small horizontal notch)
+					local HueCursor = Instance.new("Frame")
+					HueCursor.Name             = "HueCursor"
+					HueCursor.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+					HueCursor.BorderSizePixel  = 0
+					HueCursor.Size             = UDim2.fromOffset(HUE_W, 4)
+					HueCursor.ZIndex           = 205
+					HueCursor.Parent           = PickerPanel
+					addStroke(HueCursor, Color3.fromRGB(0,0,0), 1)
 
-					local function applyBrightness(c)
-						local h, s, _ = Color3.toHSV(c)
-						return Color3.fromHSV(h, s, brightness)
+					-- ── Hex input row ──────────────────────────────────────────
+					local HexBg = Instance.new("Frame")
+					HexBg.Name             = "HexBg"
+					HexBg.BackgroundColor3 = Color3.fromRGB(32, 32, 32)
+					HexBg.BorderSizePixel  = 0
+					HexBg.Size             = UDim2.fromOffset(SV_SIZE + HUE_W + 6, 22)
+					HexBg.Position         = UDim2.fromOffset(PAD, PAD + 18 + SV_SIZE + 6)
+					HexBg.ZIndex           = 201
+					HexBg.Parent           = PickerPanel
+					Instance.new("UICorner", HexBg).CornerRadius = UDim.new(0, 4)
+					addStroke(HexBg, Color3.fromRGB(50,50,50))
+
+					local HexLabel = Instance.new("TextLabel")
+					HexLabel.BackgroundTransparency = 1
+					HexLabel.Size               = UDim2.fromOffset(18, 22)
+					HexLabel.Position           = UDim2.fromOffset(0, 0)
+					HexLabel.Text               = "#"
+					HexLabel.TextSize           = 12
+					HexLabel.TextColor3         = COL_TEXT_DIM
+					HexLabel.Font               = Enum.Font.GothamBold
+					HexLabel.ZIndex             = 202
+					HexLabel.Parent             = HexBg
+
+					local HexBox = Instance.new("TextBox")
+					HexBox.Name               = "HexBox"
+					HexBox.BackgroundTransparency = 1
+					HexBox.Size               = UDim2.new(1, -20, 1, 0)
+					HexBox.Position           = UDim2.fromOffset(18, 0)
+					HexBox.Text               = ""
+					HexBox.TextSize           = 12
+					HexBox.TextColor3         = COL_TEXT_NORMAL
+					HexBox.PlaceholderText    = "RRGGBB"
+					HexBox.PlaceholderColor3  = COL_TEXT_DIM
+					HexBox.Font               = Enum.Font.GothamBold
+					HexBox.ZIndex             = 202
+					HexBox.ClearTextOnFocus   = false
+					HexBox.Parent             = HexBg
+
+					-- ── Preview swatch inside panel ────────────────────────────
+					local PreviewBox = Instance.new("Frame")
+					PreviewBox.Name             = "Preview"
+					PreviewBox.BackgroundColor3 = cfg.Default
+					PreviewBox.BorderSizePixel  = 0
+					PreviewBox.Size             = UDim2.fromOffset(PANEL_W - (PAD*2 + SV_SIZE + HUE_W + 6 + 4), 22)
+					PreviewBox.Position         = UDim2.fromOffset(PAD + SV_SIZE + HUE_W + 6 + 4, PAD + 18 + SV_SIZE + 6)
+					PreviewBox.ZIndex           = 201
+					PreviewBox.Parent           = PickerPanel
+					Instance.new("UICorner", PreviewBox).CornerRadius = UDim.new(0, 4)
+					addStroke(PreviewBox, Color3.fromRGB(50,50,50))
+
+					-- ── State ──────────────────────────────────────────────────
+					local hue        = 0
+					local sat        = 1
+					local val        = 1
+					local selColor   = cfg.Default
+					local draggingSV = false
+					local draggingH  = false
+					local isOpen     = false
+
+					local function colorToHex(c)
+						return string.format("%02X%02X%02X",
+							math.floor(c.R * 255 + 0.5),
+							math.floor(c.G * 255 + 0.5),
+							math.floor(c.B * 255 + 0.5))
+					end
+
+					local function hexToColor(hex)
+						hex = hex:gsub("#","")
+						if #hex ~= 6 then return nil end
+						local r = tonumber(hex:sub(1,2), 16)
+						local g = tonumber(hex:sub(3,4), 16)
+						local b = tonumber(hex:sub(5,6), 16)
+						if not (r and g and b) then return nil end
+						return Color3.fromRGB(r, g, b)
+					end
+
+					local function getHueColor(h)
+						return Color3.fromHSV(h, 1, 1)
+					end
+
+					local function updateCursors()
+						-- SV cursor absolute position
+						local svAbs = SVSquare.AbsolutePosition
+						local svSz  = SVSquare.AbsoluteSize
+						local cx    = svAbs.X + sat * svSz.X - 5
+						local cy    = svAbs.Y + (1 - val) * svSz.Y - 5
+						SVCursor.Position = UDim2.fromOffset(cx - PickerPanel.AbsolutePosition.X, cy - PickerPanel.AbsolutePosition.Y)
+
+						-- Hue cursor
+						local hAbs = HueBar.AbsolutePosition
+						local hSz  = HueBar.AbsoluteSize
+						HueCursor.Position = UDim2.fromOffset(
+							HueBar.Position.X.Offset,
+							PAD + 18 + hue * hSz.Y - 2
+						)
 					end
 
 					local function commitColor()
-						Swatch.BackgroundColor3 = selColor
-						PanelStroke.Color       = selColor
+						selColor = Color3.fromHSV(hue, sat, val)
+						-- Update SVSquare hue tint
+						SVSquare.BackgroundColor3 = getHueColor(hue)
+						-- Update cursors
+						updateCursors()
+						-- Update swatches
+						Swatch.BackgroundColor3   = selColor
+						PanelStroke.Color         = selColor
+						PreviewBox.BackgroundColor3 = selColor
+						HexBox.Text               = colorToHex(selColor)
+						SVCursor.BackgroundColor3 = selColor
 						cfg.Callback(selColor)
 					end
 
-					local function updateFromGrad(mouseX)
-						local rel = GradArea.AbsoluteSize.X
-						local t   = (rel > 0) and math.clamp((mouseX - GradArea.AbsolutePosition.X) / rel, 0, 1) or 0
-						local py  = (GradArea.AbsoluteSize.Y > 0) and GradArea.AbsoluteSize.Y * 0.5 or 47
-						Cursor.Position = UDim2.new(0, t * (rel > 0 and rel or 140) - Cursor.AbsoluteSize.X * 0.5, 0, py - Cursor.AbsoluteSize.Y * 0.5)
-						baseCol  = sampleGradient(t)
-						selColor = applyBrightness(baseCol)
+					local function setHSV(h, s, v)
+						hue = math.clamp(h, 0, 1)
+						sat = math.clamp(s, 0, 1)
+						val = math.clamp(v, 0, 1)
 						commitColor()
 					end
 
-					local function updateFromBright(mouseX)
-						local w  = BrightTrack.AbsoluteSize.X
-						local px = math.clamp(mouseX - BrightTrack.AbsolutePosition.X, 0, w)
-						BrightCursor.Position = UDim2.new(0, px - BrightCursor.AbsoluteSize.X * 0.5, 0, 0)
-						brightness = 1 - ((w > 0) and (px / w) or 0)
-						selColor   = applyBrightness(baseCol)
-						commitColor()
+					-- Initialise from default color
+					local dh, ds, dv = Color3.toHSV(cfg.Default)
+					hue, sat, val = dh, ds, dv
+
+					-- ── Open / Close helpers ───────────────────────────────────
+					local function positionPanel()
+						local swAbs = Swatch.AbsolutePosition
+						local swSz  = Swatch.AbsoluteSize
+						local px    = swAbs.X - PANEL_W + swSz.X
+						local py    = swAbs.Y + swSz.Y + 4
+						-- Keep within viewport
+						if px < 4 then px = 4 end
+						if py + PANEL_H > VIEWPORT.Y - 4 then
+							py = swAbs.Y - PANEL_H - 4
+						end
+						PickerPanel.Position = UDim2.fromOffset(px, py)
 					end
 
-					GradArea.InputBegan:Connect(function(i)
-						if i.UserInputType == Enum.UserInputType.MouseButton1 then
-							draggingGrad = true; updateFromGrad(i.Position.X)
+					-- Unique token so we know if WE are the active picker
+					local myToken = {}
+
+					local function closePicker()
+						isOpen = false
+						PickerPanel.Visible = false
+						if activeColorPicker and activeColorPicker._token == myToken then
+							activeColorPicker = nil
 						end
-					end)
-					GradArea.InputEnded:Connect(function(i)
-						if i.UserInputType == Enum.UserInputType.MouseButton1 then draggingGrad = false end
-					end)
+					end
 
-					BrightTrack.InputBegan:Connect(function(i)
-						if i.UserInputType == Enum.UserInputType.MouseButton1 then
-							draggingBright = true; updateFromBright(i.Position.X)
+					local function openPicker()
+						-- Close previously open picker
+						if activeColorPicker and activeColorPicker.close then
+							activeColorPicker.close()
 						end
-					end)
-					BrightTrack.InputEnded:Connect(function(i)
-						if i.UserInputType == Enum.UserInputType.MouseButton1 then draggingBright = false end
-					end)
+						isOpen = true
+						positionPanel()
+						commitColor()
+						PickerPanel.Visible = true
+						activeColorPicker = { _token = myToken, close = closePicker }
+					end
 
-					UserInputService.InputChanged:Connect(function(i)
-						if i.UserInputType ~= Enum.UserInputType.MouseMovement then return end
-						if draggingGrad   then updateFromGrad(i.Position.X)   end
-						if draggingBright then updateFromBright(i.Position.X)  end
-					end)
-
+					-- ── Swatch click toggles panel ─────────────────────────────
 					Swatch.InputBegan:Connect(function(i)
 						if i.UserInputType == Enum.UserInputType.MouseButton1 then
-							PickerPanel.Visible = not PickerPanel.Visible
+							if isOpen then
+								closePicker()
+							else
+								openPicker()
+							end
 						end
 					end)
 
-					CloseBtn.InputBegan:Connect(function(i)
+					-- ── SV square interaction ──────────────────────────────────
+					ValOverlay.InputBegan:Connect(function(i)
 						if i.UserInputType == Enum.UserInputType.MouseButton1 then
-							PickerPanel.Visible = false
+							draggingSV = true
+							local sz  = SVSquare.AbsoluteSize
+							local pos = SVSquare.AbsolutePosition
+							sat = math.clamp((i.Position.X - pos.X) / sz.X, 0, 1)
+							val = 1 - math.clamp((i.Position.Y - pos.Y) / sz.Y, 0, 1)
+							commitColor()
+						end
+					end)
+					ValOverlay.InputEnded:Connect(function(i)
+						if i.UserInputType == Enum.UserInputType.MouseButton1 then draggingSV = false end
+					end)
+					-- Also allow clicking the base square
+					SVSquare.InputBegan:Connect(function(i)
+						if i.UserInputType == Enum.UserInputType.MouseButton1 then
+							draggingSV = true
+							local sz  = SVSquare.AbsoluteSize
+							local pos = SVSquare.AbsolutePosition
+							sat = math.clamp((i.Position.X - pos.X) / sz.X, 0, 1)
+							val = 1 - math.clamp((i.Position.Y - pos.Y) / sz.Y, 0, 1)
+							commitColor()
+						end
+					end)
+					SVSquare.InputEnded:Connect(function(i)
+						if i.UserInputType == Enum.UserInputType.MouseButton1 then draggingSV = false end
+					end)
+
+					-- ── Hue bar interaction ────────────────────────────────────
+					HueBar.InputBegan:Connect(function(i)
+						if i.UserInputType == Enum.UserInputType.MouseButton1 then
+							draggingH = true
+							local sz  = HueBar.AbsoluteSize
+							local pos = HueBar.AbsolutePosition
+							hue = math.clamp((i.Position.Y - pos.Y) / sz.Y, 0, 1)
+							commitColor()
+						end
+					end)
+					HueBar.InputEnded:Connect(function(i)
+						if i.UserInputType == Enum.UserInputType.MouseButton1 then draggingH = false end
+					end)
+
+					-- ── Global mouse move for drag ─────────────────────────────
+					UserInputService.InputChanged:Connect(function(i)
+						if i.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+						if draggingSV then
+							local sz  = SVSquare.AbsoluteSize
+							local pos = SVSquare.AbsolutePosition
+							sat = math.clamp((i.Position.X - pos.X) / sz.X, 0, 1)
+							val = 1 - math.clamp((i.Position.Y - pos.Y) / sz.Y, 0, 1)
+							commitColor()
+						end
+						if draggingH then
+							local sz  = HueBar.AbsoluteSize
+							local pos = HueBar.AbsolutePosition
+							hue = math.clamp((i.Position.Y - pos.Y) / sz.Y, 0, 1)
+							commitColor()
 						end
 					end)
 
+					UserInputService.InputEnded:Connect(function(i)
+						if i.UserInputType == Enum.UserInputType.MouseButton1 then
+							draggingSV = false
+							draggingH  = false
+						end
+					end)
+
+					-- ── Hex box commit ─────────────────────────────────────────
+					HexBox.FocusLost:Connect(function()
+						local c = hexToColor(HexBox.Text)
+						if c then
+							local h, s, v = Color3.toHSV(c)
+							setHSV(h, s, v)
+						else
+							HexBox.Text = colorToHex(selColor)
+						end
+					end)
+
+					-- ── Close on click outside ─────────────────────────────────
+					UserInputService.InputBegan:Connect(function(i)
+						if not isOpen then return end
+						if i.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+						-- Check if click is inside panel or swatch
+						local mp = i.Position
+						local pp = PickerPanel.AbsolutePosition
+						local ps = PickerPanel.AbsoluteSize
+						local sp = Swatch.AbsolutePosition
+						local ss = Swatch.AbsoluteSize
+						local insidePanel  = mp.X >= pp.X and mp.X <= pp.X + ps.X and mp.Y >= pp.Y and mp.Y <= pp.Y + ps.Y
+						local insideSwatch = mp.X >= sp.X and mp.X <= sp.X + ss.X and mp.Y >= sp.Y and mp.Y <= sp.Y + ss.Y
+						if not insidePanel and not insideSwatch then
+							closePicker()
+						end
+					end)
+
+					-- Row hover
 					RowFrame.MouseEnter:Connect(function() tween(RowTitle, { TextColor3 = COL_TEXT_HOVER }) end)
 					RowFrame.MouseLeave:Connect(function() tween(RowTitle, { TextColor3 = COL_TEXT_NORMAL }) end)
 
-					-- Position cursor at default color
-					local function applyDefault(c)
-						local t  = colorToGradientT(c)
-						local gw = 140
-						local gh = 95
-						Cursor.Position     = UDim2.new(0, t * gw - 2, 0, gh * 0.5 - 2)
-						baseCol             = sampleGradient(t)
-						brightness          = 1
-						BrightCursor.Position = UDim2.new(0, gw - 3, 0, 0)
-						selColor            = applyBrightness(baseCol)
-						Swatch.BackgroundColor3 = selColor
-						PanelStroke.Color   = selColor
-					end
-					applyDefault(cfg.Default)
+					-- Initial visual state
+					commitColor()
 
 					return {
 						Frame    = RowFrame,
@@ -1423,7 +1705,8 @@ local function InitJWareUI()
 						Panel    = PickerPanel,
 						GetColor = function() return selColor end,
 						SetColor = function(c)
-							applyDefault(c)
+							local h, s, v = Color3.toHSV(c)
+							setHSV(h, s, v)
 							cfg.Callback(selColor)
 						end,
 					}
