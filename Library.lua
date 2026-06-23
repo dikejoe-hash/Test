@@ -987,10 +987,18 @@ local function InitJWareUI()
 						end
 					end)
 
+					-- Guard flag: set by option buttons so UIS.InputBegan doesn't
+					-- misfire a close on the same click that selects an option.
+					local optionClickConsumed = false
+
 					-- Close when clicking outside
 					UserInputService.InputBegan:Connect(function(input)
 						if not expanded then return end
 						if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+						if optionClickConsumed then
+							optionClickConsumed = false
+							return
+						end
 						local mp = UserInputService:GetMouseLocation()
 						local lp = ListFrame.AbsolutePosition
 						local ls = ListFrame.AbsoluteSize
@@ -1034,6 +1042,12 @@ local function InitJWareUI()
 
 						wrapper.MouseEnter:Connect(function() tween(optLbl, { TextColor3 = COL_TEXT_HOVER }) end)
 						wrapper.MouseLeave:Connect(function() tween(optLbl, { TextColor3 = COL_TEXT_NORMAL }) end)
+
+						wrapper.InputBegan:Connect(function(input)
+							if input.UserInputType == Enum.UserInputType.MouseButton1 then
+								optionClickConsumed = true
+							end
+						end)
 
 						wrapper.MouseButton1Click:Connect(function()
 							if cfg.Multi then
@@ -1298,7 +1312,7 @@ local function InitJWareUI()
 					--          [hex input 156×18]
 					-- Total inner: 156 wide × 144 tall → panel 166 × 158
 					local PANEL_W = 166
-					local PANEL_H = 164
+					local PANEL_H = 148
 					local SV_W    = 140
 					local SV_H    = 120
 					local HUE_W   = 12
@@ -1446,17 +1460,6 @@ local function InitJWareUI()
 					HexInput.ZIndex               = 202
 					HexInput.Parent               = HexRow
 
-					-- Preview swatch inside panel
-					local PreviewSwatch = Instance.new("Frame")
-					PreviewSwatch.Name             = "Preview"
-					PreviewSwatch.BackgroundColor3 = cfg.Default
-					PreviewSwatch.BorderSizePixel  = 0
-					PreviewSwatch.Size             = UDim2.new(0, PANEL_W - PADDING*2, 0, 14)
-					PreviewSwatch.Position         = UDim2.new(0, PADDING, 0, PADDING + SV_H + PADDING + 24)
-					PreviewSwatch.ZIndex           = 201
-					PreviewSwatch.Parent           = PickerPanel
-					addStroke(PreviewSwatch, Theme.OutlineColor)
-
 					-- ── State ────────────────────────────────────────────────
 					local hue        = 0
 					local sat        = 1
@@ -1502,7 +1505,6 @@ local function InitJWareUI()
 
 						-- Swatch colours
 						Swatch.BackgroundColor3  = selColor
-						PreviewSwatch.BackgroundColor3 = selColor
 
 						-- Hex field
 						if not skipHexUpdate then
