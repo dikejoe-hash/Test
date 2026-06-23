@@ -176,42 +176,15 @@ local function InitJWareUI()
 		end)
 	end
 
-	-- ─── Color-picker gradient data ───────────────────────────────────────────
-	local GRADIENT_KEYPOINTS = {
-		{ t = 0.000, c = Color3.fromRGB(255, 255, 255) },
-		{ t = 0.150, c = Color3.fromRGB(255, 0,   0  ) },
-		{ t = 0.333, c = Color3.fromRGB(236, 255, 16 ) },
-		{ t = 0.500, c = Color3.fromRGB(0,   255, 9  ) },
-		{ t = 0.667, c = Color3.fromRGB(0,   255, 248) },
-		{ t = 0.833, c = Color3.fromRGB(0,   0,   255) },
-		{ t = 1.000, c = Color3.fromRGB(239, 0,   255) },
-	}
+	-- ─── Color-picker singleton tracker ──────────────────────────────────────
+	-- Only one picker panel open at a time
+	local _activePickerClose = nil  -- function() to close the currently open picker
 
-	local function lerpColor(a, b, t)
-		return Color3.new(a.R + (b.R - a.R) * t, a.G + (b.G - a.G) * t, a.B + (b.B - a.B) * t)
-	end
-
-	local function sampleGradient(t)
-		t = math.clamp(t, 0, 1)
-		for i = 1, #GRADIENT_KEYPOINTS - 1 do
-			local a, b = GRADIENT_KEYPOINTS[i], GRADIENT_KEYPOINTS[i + 1]
-			if t >= a.t and t <= b.t then
-				return lerpColor(a.c, b.c, (t - a.t) / (b.t - a.t))
-			end
+	local function closeActivePicker()
+		if _activePickerClose then
+			_activePickerClose()
+			_activePickerClose = nil
 		end
-		return GRADIENT_KEYPOINTS[#GRADIENT_KEYPOINTS].c
-	end
-
-	-- Find gradient t value closest to a given Color3
-	local function colorToGradientT(c)
-		local bestT, minDist = 0, math.huge
-		for t = 0, 1, 0.001 do
-			local col = sampleGradient(t)
-			local dr, dg, db = col.R - c.R, col.G - c.G, col.B - c.B
-			local dist = dr*dr + dg*dg + db*db
-			if dist < minDist then minDist, bestT = dist, t end
-		end
-		return bestT
 	end
 
 	-- ═══════════════════════════════════════════════════════════════════════════
