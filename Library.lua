@@ -1548,7 +1548,7 @@ local function InitJWareUI()
 						local swSz  = Swatch.AbsoluteSize
 						-- Place panel to the RIGHT of the swatch
 						local px = swAbs.X + swSz.X + 4
-						local py = swAbs.Y + swSz.Y * 0.5 - PANEL_H * 0.5
+						local py = swAbs.Y + swSz.Y * 0.5 - PANEL_H * 0.5 + 50
 						-- Clamp within viewport
 						if px + PANEL_W > VIEWPORT.X - 4 then
 							px = swAbs.X - PANEL_W - 4
