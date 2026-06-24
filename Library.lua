@@ -27,7 +27,7 @@ local function InitJWareUI()
 	-- Constants
 	local VIEWPORT   = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
 	local TWEEN_INFO = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
-	local Theme      = Themes.JWare2
+	Theme = Themes.JWare2
 
 	-- Colour palette used by elements
 	local COL_ELEM_BG     = Color3.fromRGB(26, 26, 26)
@@ -138,6 +138,8 @@ local function InitJWareUI()
 
 	local function inputToKeyName(input)
 		if input.UserInputType == Enum.UserInputType.Keyboard then
+			-- Escape clears the keybind
+			if input.KeyCode == Enum.KeyCode.Escape then return "None" end
 			return input.KeyCode.Name
 		elseif input.UserInputType == Enum.UserInputType.MouseButton1 then return "MB1"
 		elseif input.UserInputType == Enum.UserInputType.MouseButton2 then return "MB2"
@@ -230,19 +232,18 @@ local function InitJWareUI()
 
 		-- ── Theme registry ────────────────────────────────────────────────────
 		local themedElements = {
-			strokes         = {},  -- UIStroke instances that used MainColor
-			outlineStrokes  = {},  -- UIStroke instances that used OutlineColor
-			gradients       = {},  -- UIGradient instances inside "Fade" frames
-			fills           = {},  -- Frame "Fill" instances inside sliders
-			scrolls         = {},  -- ScrollingFrames (slider scroll bars)
-			mainFrames      = {},  -- Main background frames (BackgroundColor)
-			bg2Frames       = {},  -- Secondary background frames (BackgroundColor2)
-			tabButtons      = {},  -- Tab TextLabel buttons (active bg = MainColor)
-			activeChecks    = {},  -- Check frames of currently-ON toggles
-			activeOptLabels = {},  -- optLbl frames of currently-selected multi-dropdown options
+			strokes         = {},
+			outlineStrokes  = {},
+			gradients       = {},
+			fills           = {},
+			scrolls         = {},
+			mainFrames      = {},
+			bg2Frames       = {},
+			tabButtons      = {},
+			activeChecks    = {},
+			activeOptLabels = {},
 		}
 
-		-- Register helpers
 		local function trackStroke(stroke)
 			table.insert(themedElements.strokes, stroke)
 			return stroke
@@ -276,7 +277,6 @@ local function InitJWareUI()
 			return lbl
 		end
 
-		-- ── addStroke variant that auto-tracks MainColor strokes ──────────────
 		local function addStrokeTracked(parent, color, thickness, mode)
 			local s = addStroke(parent, color, thickness, mode)
 			if color == Theme.MainColor then
@@ -285,7 +285,6 @@ local function InitJWareUI()
 			return s
 		end
 
-		-- ── addStroke variant that auto-tracks OutlineColor strokes ───────────
 		local function addOutlineStroke(parent, thickness, mode)
 			local s = addStroke(parent, Theme.OutlineColor, thickness, mode)
 			trackOutlineStroke(s)
@@ -294,19 +293,12 @@ local function InitJWareUI()
 
 		-- ── Live theme application ────────────────────────────────────────────
 		function Window:ApplyTheme(newTheme)
-			-- Recolor tracked strokes that used MainColor
 			for _, s in ipairs(themedElements.strokes) do
-				if s and s.Parent then
-					s.Color = newTheme.MainColor
-				end
+				if s and s.Parent then s.Color = newTheme.MainColor end
 			end
-			-- Recolor tracked strokes that used OutlineColor
 			for _, s in ipairs(themedElements.outlineStrokes) do
-				if s and s.Parent then
-					s.Color = newTheme.OutlineColor
-				end
+				if s and s.Parent then s.Color = newTheme.OutlineColor end
 			end
-			-- Recolor section header gradients
 			for _, g in ipairs(themedElements.gradients) do
 				if g and g.Parent then
 					g.Color = ColorSequence.new{
@@ -315,49 +307,29 @@ local function InitJWareUI()
 					}
 				end
 			end
-			-- Recolor slider fills
 			for _, f in ipairs(themedElements.fills) do
-				if f and f.Parent then
-					f.BackgroundColor3 = newTheme.MainColor
-				end
+				if f and f.Parent then f.BackgroundColor3 = newTheme.MainColor end
 			end
-			-- Recolor scroll bars
 			for _, sf in ipairs(themedElements.scrolls) do
-				if sf and sf.Parent then
-					sf.ScrollBarImageColor3 = newTheme.MainColor
-				end
+				if sf and sf.Parent then sf.ScrollBarImageColor3 = newTheme.MainColor end
 			end
-			-- Recolor main background frames
 			for _, fr in ipairs(themedElements.mainFrames) do
-				if fr and fr.Parent then
-					fr.BackgroundColor3 = newTheme.BackgroundColor
-				end
+				if fr and fr.Parent then fr.BackgroundColor3 = newTheme.BackgroundColor end
 			end
-			-- Recolor secondary background frames
 			for _, fr in ipairs(themedElements.bg2Frames) do
-				if fr and fr.Parent then
-					fr.BackgroundColor3 = newTheme.BackgroundColor2
-				end
+				if fr and fr.Parent then fr.BackgroundColor3 = newTheme.BackgroundColor2 end
 			end
-			-- Recolor active tab button backgrounds
 			for _, btn in ipairs(themedElements.tabButtons) do
 				if btn and btn.Parent and btn.BackgroundTransparency == 0 then
 					btn.BackgroundColor3 = newTheme.MainColor
 				end
 			end
-			-- Recolor active toggle check boxes
 			for _, check in ipairs(themedElements.activeChecks) do
-				if check and check.Parent then
-					check.BackgroundColor3 = newTheme.MainColor
-				end
+				if check and check.Parent then check.BackgroundColor3 = newTheme.MainColor end
 			end
-			-- Recolor selected multi-dropdown option labels
 			for _, lbl in ipairs(themedElements.activeOptLabels) do
-				if lbl and lbl.Parent then
-					lbl.BackgroundColor3 = newTheme.MainColor
-				end
+				if lbl and lbl.Parent then lbl.BackgroundColor3 = newTheme.MainColor end
 			end
-			-- Update the module-level Theme reference so new popups use new colors
 			Theme = newTheme
 		end
 
@@ -493,18 +465,16 @@ local function InitJWareUI()
 			KeybindFrame.Visible = keybindVisible
 		end
 
+		-- AddKeybind: pass key = "None" to show a dimmed "None" row (not remove it)
 		function Window:AddKeybind(title, key)
-			if key == "None" then
-				if self.KeybindLabels[title] then
-					self.KeybindLabels[title].Frame:Destroy()
-					self.KeybindLabels[title] = nil
-				end
-				return
-			end
 			if self.KeybindLabels[title] then
-				self.KeybindLabels[title].KeyLabel.Text = key
+				-- Update existing row
+				local entry = self.KeybindLabels[title]
+				entry.KeyLabel.Text       = key
+				entry.KeyLabel.TextColor3 = (key == "None") and COL_TEXT_DIM or Color3.fromRGB(255, 255, 255)
 				return
 			end
+
 			local row = Instance.new("Frame")
 			row.Name                   = "KB_" .. title
 			row.BackgroundTransparency = 1
@@ -527,11 +497,19 @@ local function InitJWareUI()
 			rowKey.Text               = key
 			rowKey.TextSize           = 12
 			rowKey.TextXAlignment     = Enum.TextXAlignment.Right
-			rowKey.TextColor3         = Color3.fromRGB(255, 255, 255)
+			rowKey.TextColor3         = (key == "None") and COL_TEXT_DIM or Color3.fromRGB(255, 255, 255)
 			rowKey.FontFace           = Font.new("rbxasset://fonts/families/GothamSSm.json")
 			rowKey.Parent             = row
 
 			self.KeybindLabels[title] = { Frame = row, KeyLabel = rowKey }
+		end
+
+		-- Highlight a keybind row when its key is actively held/toggled on
+		function Window:SetKeybindActive(title, active)
+			local entry = self.KeybindLabels[title]
+			if not entry then return end
+			local col = active and Theme.MainColor or Color3.fromRGB(255, 255, 255)
+			tween(entry.KeyLabel, { TextColor3 = col })
 		end
 
 		-- ── Watermark Overlay ─────────────────────────────────────────────────
@@ -859,7 +837,6 @@ local function InitJWareUI()
 					local currentKey = cfg.KeyBind
 					local keyState   = toggled
 
-					-- ── syncCheck: keep themedElements.activeChecks in sync ──
 					local function syncCheck(animated)
 						if toggled then
 							if not table.find(themedElements.activeChecks, Check) then
@@ -887,10 +864,14 @@ local function InitJWareUI()
 						KeyLabel.TextColor3         = toggled and Theme.MainColor or COL_TEXT_DIM
 						KeyLabel.Font               = Enum.Font.GothamBold
 						KeyLabel.Parent             = ToggleFrame
+
+						-- Always register in keybind overlay (shows "None" if unset)
+						Window:AddKeybind(cfg.Title, currentKey)
 					end
 
 					local function setKeyLabelColor(state)
 						if KeyLabel then tween(KeyLabel, { TextColor3 = state and Theme.MainColor or COL_TEXT_DIM }) end
+						if cfg.KeybindEnabled then Window:SetKeybindActive(cfg.Title, state) end
 					end
 
 					local function doToggle()
@@ -923,11 +904,9 @@ local function InitJWareUI()
 								listening = true
 								startListening(KeyLabel, function(name)
 									listening = false
-									if name ~= currentKey then
-										currentKey = name
-										Window:AddKeybind(cfg.Title, name)
-										cfg.KeyCallback("Changed", { Key = name, Mode = cfg.Mode })
-									end
+									currentKey = name
+									Window:AddKeybind(cfg.Title, name)
+									cfg.KeyCallback("Changed", { Key = name, Mode = cfg.Mode })
 								end)
 								return
 							end
@@ -975,6 +954,7 @@ local function InitJWareUI()
 							if v ~= currentKey then
 								currentKey = v
 								if KeyLabel then KeyLabel.Text = v end
+								Window:AddKeybind(cfg.Title, v)
 								cfg.KeyCallback("Changed", { Key = v, Mode = cfg.Mode })
 							end
 						end,
@@ -998,7 +978,6 @@ local function InitJWareUI()
 						cfg.Default = cfg.Default or {}
 					end
 
-					-- Wrapper (collapsed)
 					local DropFrame = Instance.new("Frame")
 					DropFrame.Name             = cfg.Title
 					DropFrame.BackgroundColor3 = COL_ELEM_BG
@@ -1019,7 +998,6 @@ local function InitJWareUI()
 					DropTitle.Font                   = Enum.Font.Gotham
 					DropTitle.Parent                 = DropFrame
 
-					-- Set initial display text
 					if cfg.Multi then
 						DropTitle.Text = (#cfg.Default > 0) and table.concat(cfg.Default, ", ") or cfg.Placeholder
 					else
@@ -1038,7 +1016,6 @@ local function InitJWareUI()
 					Indicator.Font                   = Enum.Font.Gotham
 					Indicator.Parent                 = DropFrame
 
-					-- Expanded list parented to PopupOverlay so it is never clipped
 					local listHeight = math.min(#cfg.Options * 20, 160)
 					local ListFrame = Instance.new("Frame")
 					ListFrame.Name             = "List_" .. cfg.Title
@@ -1130,7 +1107,6 @@ local function InitJWareUI()
 						end
 					end)
 
-					-- Build option buttons
 					for _, optName in ipairs(cfg.Options) do
 						local wrapper = Instance.new("TextButton")
 						wrapper.Name                   = optName
@@ -1172,13 +1148,11 @@ local function InitJWareUI()
 							if cfg.Multi then
 								local idx = table.find(selected, optName)
 								if idx then
-									-- Deselect: remove from selected and stop tracking
 									table.remove(selected, idx)
 									local ti = table.find(themedElements.activeOptLabels, optLbl)
 									if ti then table.remove(themedElements.activeOptLabels, ti) end
 									tween(optLbl, { BackgroundColor3 = COL_ELEM_BG })
 								else
-									-- Select: add to selected and start tracking
 									table.insert(selected, optName)
 									if not table.find(themedElements.activeOptLabels, optLbl) then
 										table.insert(themedElements.activeOptLabels, optLbl)
@@ -1201,7 +1175,6 @@ local function InitJWareUI()
 						table.insert(optButtons, { Name = optName, Label = optLbl })
 					end
 
-					-- Apply default highlights for multi-select and track them
 					if cfg.Multi then
 						for _, ob in ipairs(optButtons) do
 							if table.find(selected, ob.Name) then
@@ -1218,7 +1191,6 @@ local function InitJWareUI()
 						GetValue = function() return selected end,
 						SetValue = function(val)
 							if cfg.Multi then
-								-- Clear all existing tracking for this dropdown's options
 								for _, ob in ipairs(optButtons) do
 									ob.Label.BackgroundColor3 = COL_ELEM_BG
 									local ti = table.find(themedElements.activeOptLabels, ob.Label)
@@ -1451,8 +1423,8 @@ local function InitJWareUI()
 
 					local PANEL_W = 166
 					local PANEL_H = 148
-					local SV_W    = 140
-					local SV_H    = 115
+					local SV_W    = 138
+					local SV_H    = 114
 					local HUE_W   = 12
 					local PADDING = 5
 
@@ -1806,6 +1778,9 @@ local function InitJWareUI()
 					KeyLbl.AutomaticSize          = Enum.AutomaticSize.X
 					KeyLbl.Parent                 = Holder
 
+					-- Always register in keybind overlay (shows "None" if unset)
+					Window:AddKeybind(cfg.Title, cfg.Default)
+
 					TitleLbl.MouseEnter:Connect(function() tween(TitleLbl, { TextColor3 = COL_TEXT_HOVER }) end)
 					TitleLbl.MouseLeave:Connect(function() tween(TitleLbl, { TextColor3 = COL_TEXT_NORMAL }) end)
 
@@ -1838,9 +1813,11 @@ local function InitJWareUI()
 						if cfg.Mode == "Toggle" then
 							toggleState = not toggleState
 							tween(KeyLbl, { TextColor3 = toggleState and Theme.MainColor or COL_TEXT_DIM })
+							Window:SetKeybindActive(cfg.Title, toggleState)
 							cfg.Callback("Pressed", { Key = currentKey, Mode = cfg.Mode, State = toggleState })
 						elseif cfg.Mode == "Hold" then
 							tween(KeyLbl, { TextColor3 = Theme.MainColor })
+							Window:SetKeybindActive(cfg.Title, true)
 							cfg.Callback("Pressed", { Key = currentKey, Mode = cfg.Mode, State = true })
 						end
 					end)
@@ -1849,6 +1826,7 @@ local function InitJWareUI()
 						if gp or cfg.Mode ~= "Hold" then return end
 						if keyMatchesInput(input, currentKey) then
 							tween(KeyLbl, { TextColor3 = COL_TEXT_DIM })
+							Window:SetKeybindActive(cfg.Title, false)
 							cfg.Callback("Pressed", { Key = currentKey, Mode = cfg.Mode, State = false })
 						end
 					end)
@@ -1859,6 +1837,7 @@ local function InitJWareUI()
 							if v ~= currentKey then
 								currentKey = v
 								KeyLbl.Text = v
+								Window:AddKeybind(cfg.Title, v)
 								cfg.Callback("Changed", { Key = v, Mode = cfg.Mode })
 							end
 						end,
